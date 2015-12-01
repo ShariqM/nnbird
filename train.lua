@@ -18,7 +18,7 @@ cmd:text('Options')
 cmd:option('-data_gen',false,'generate data')
 -- optimization
 cmd:option('-iters',100,'iterations per epoch')
-cmd:option('-learning_rate',1e-4,'learning rate')
+cmd:option('-learning_rate',10,'learning rate')
 cmd:option('-learning_rate_decay',0.97,'learning rate decay')
 cmd:option('-learning_rate_decay_after',10,'in number of epochs, when to start decaying the learning rate')
 cmd:option('-decay_rate',0.95,'decay rate for rmsprop')
@@ -54,6 +54,7 @@ protos.criterion = nn.MSECriterion()
 params, grad_params = model_utils.combine_all_parameters(protos.enn)
 params[2] = 0 -- 0 bias
 print('number of parameters in the model: ' .. params:nElement())
+params[1] = -50
 
 clones = {}
 for name,proto in pairs(protos) do
@@ -71,7 +72,7 @@ if opt.data_gen then
     xv_data = {}
 
     for t=1, seq_length do
-        x, v = unpack(clones.enn[t]:forward{x, v, dt_tensor})
+        x, v = unpack(clones.enn[t]:forward{dt_tensor, x, v})
         print (string.format("x=%.3f,v=%.3f", x[{1,1}], v[{1,1}]))
         xv[t] = torch.Tensor(1,1):fill(x[{1,1}])
         xv_data[t] = torch.Tensor(1,1):fill(x[{1,1}])
@@ -106,23 +107,33 @@ function feval(x)
     ------------------ backward pass -------------------
     -- initialize gradient at time t to be zeros (there's no influence from future)
     local denn_state = {[seq_length] = clone_list(init_state, true)} -- true also zeros the clones
+    -- local denn_state = {[seq_length] = {}}
     for t=seq_length,1,-1 do
         -- backprop through loss, and softmax/linear
-        local doutput_t = clones.criterion[t]:backward(x[t], tgt[t])
+        local doutput_t = clones.criterion[t]:backward(enn_state[t][1], tgt[t])
+
+        denn_state[t][1]:add(doutput_t)
         local dlst = clones.enn[t]:backward({unpack(enn_state[t-1]), dt_tensor}, denn_state[t])
 
+
         denn_state[t-1] = {}
+        -- print (dlst[1])
+        -- print (dlst[2])
+        -- print (dlst[3])
+        -- debug.debug()
         for k,v in pairs(dlst) do
             if k > 1 then -- k == 1 is gradient on x, which we dont need
                 -- note we do k-1 because first item is dembeddings, and then follow the
                 -- derivatives of the state, starting at index 2. I know...
                 denn_state[t-1][k-1] = v
+                -- print ('hi', v)
             end
         end
     end
 
     -- clip gradient element-wise
     grad_params:clamp(-opt.grad_clip, opt.grad_clip) -- Hmmm...
+    -- debug.debug()
 
     grad_params[2] = 0 -- FIXME 0 the bias gradient, Pretty ugly..
 
@@ -134,8 +145,6 @@ local optim_state = {learningRate = opt.learning_rate, alpha = opt.decay_rate}
 local iterations = opt.max_epochs * opt.iters
 local iterations_per_epoch = opt.iters
 local loss0 = nil
-local seq_loss = 0
-local j = 0
 
 for i = 1, iterations do
     local epoch = i / iterations_per_epoch
@@ -145,7 +154,6 @@ for i = 1, iterations do
     local time = timer:time().real
 
     local train_loss = loss[1] -- the loss is inside a list, pop it
-    train_losses[i] = train_loss
 
     -- exponential learning rate decay
     if i % iterations_per_epoch == 0 and opt.learning_rate_decay < 1 then
@@ -174,7 +182,7 @@ for i = 1, iterations do
 
     -- handle early stopping if things are going really bad
     if loss[1] ~= loss[1] then
-        print('loss is NaN.  This usually indicates a bug.  Please check the issues page for existing issues, or create a new issue, if none exist.  Ideally, please state: your operating system, 32-bit/64-bit, your blas version, cpu/cuda/cl?')
+        print "Loss Nan'd"
         break -- halt
     end
     if loss0 == nil then loss0 = loss[1] end

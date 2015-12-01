@@ -9,7 +9,7 @@ function ENN.enn()
     local v_t  = nn.CAddTable()({v, nn.CMulTable()({vdot,dt})})
     local x_t  = nn.CAddTable()({x, nn.CMulTable()({v_t,dt})})
 
-    return nn.gModule({x, v, dt}, {x_t, v_t})
+    return nn.gModule({dt, x, v}, {x_t, v_t})
 end
 
 return ENN
