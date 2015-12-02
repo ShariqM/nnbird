@@ -18,7 +18,7 @@ cmd:text('Options')
 cmd:option('-data_gen',false,'generate data')
 -- optimization
 cmd:option('-iters',100,'iterations per epoch')
-cmd:option('-learning_rate',10,'learning rate')
+cmd:option('-learning_rate',4e-1,'learning rate')
 cmd:option('-learning_rate_decay',0.97,'learning rate decay')
 cmd:option('-learning_rate_decay_after',10,'in number of epochs, when to start decaying the learning rate')
 cmd:option('-decay_rate',0.95,'decay rate for rmsprop')
@@ -28,6 +28,7 @@ cmd:option('-grad_clip',5,'clip gradients at this value')
 -- bookkeeping
 cmd:option('-seed',123,'torch manual random number generator seed')
 cmd:option('-print_every',1,'how many steps/minibatches between printing out the loss')
+cmd:option('-init_from', '', 'initialize network parameters from checkpoint at this path')
 cmd:option('-save_every',200,'Save every $1 iterations')
 cmd:option('-checkpoint_dir', 'save', 'output directory where checkpoints get written')
 cmd:text()
@@ -47,14 +48,22 @@ seq_length = 200
 
 dt_tensor = torch.DoubleTensor(1,1):fill(dt)
 
-protos = {}
-protos.enn = ENN.enn()
-protos.criterion = nn.MSECriterion()
+if string.len(opt.init_from) > 0 then
+    print('loading an Network from checkpoint ' .. opt.init_from)
+    local checkpoint = torch.load(opt.init_from)
+    protos = checkpoint.protos
+else
+    protos = {}
+    protos.enn = ENN.enn()
+    protos.criterion = nn.MSECriterion()
+end
 
 params, grad_params = model_utils.combine_all_parameters(protos.enn)
 params[2] = 0 -- 0 bias
+
 print('number of parameters in the model: ' .. params:nElement())
-params[1] = -50
+params[1] = -30
+print('params 1', params[1])
 
 clones = {}
 for name,proto in pairs(protos) do
@@ -83,6 +92,7 @@ if opt.data_gen then
     sleep(100)
 end
 
+piter = 0
 function feval(x)
     if x ~= params then
         params:copy(x)
@@ -95,14 +105,29 @@ function feval(x)
     x  = torch.DoubleTensor(1,1):fill(x_0)
     v  = torch.DoubleTensor(1,1):fill(v_0)
     init_state = {x,v}
-    local enn_state = {[0] = init_state}
+    enn_state = {[0] = init_state}
+    xv_graph = torch.Tensor(seq_length)
+    tgt_graph = torch.Tensor(seq_length)
 
     for t=1,seq_length do
         -- enn_state[t] = clones.enn[t]:forward{unpack(enn_state[t-1]), dt_tensor}
         enn_state[t] = clones.enn[t]:forward{dt_tensor, unpack(enn_state[t-1])}
         xv = enn_state[t][1]
         loss = loss + clones.criterion[t]:forward(xv, tgt[t])
+        xv_graph[t] = xv
+        tgt_graph[t] = tgt[t][{1,1}]
     end
+
+    if piter % 20 == 0 then
+        gnuplot.pngfigure(string.format('graphs/%.4d.png', piter))
+        gnuplot.xlabel('Time [increments of dt]')
+        gnuplot.ylabel('x(t) [Position]')
+        sym = '-'
+        gnuplot.plot({'Model', xv_graph, sym, }, {'Target', tgt_graph, sym})
+        gnuplot.plotflush()
+    end
+    piter = piter + 1
+
 
     ------------------ backward pass -------------------
     -- initialize gradient at time t to be zeros (there's no influence from future)
@@ -115,25 +140,18 @@ function feval(x)
         denn_state[t][1]:add(doutput_t)
         local dlst = clones.enn[t]:backward({unpack(enn_state[t-1]), dt_tensor}, denn_state[t])
 
-
         denn_state[t-1] = {}
-        -- print (dlst[1])
-        -- print (dlst[2])
-        -- print (dlst[3])
-        -- debug.debug()
         for k,v in pairs(dlst) do
             if k > 1 then -- k == 1 is gradient on x, which we dont need
                 -- note we do k-1 because first item is dembeddings, and then follow the
                 -- derivatives of the state, starting at index 2. I know...
                 denn_state[t-1][k-1] = v
-                -- print ('hi', v)
             end
         end
     end
 
     -- clip gradient element-wise
     grad_params:clamp(-opt.grad_clip, opt.grad_clip) -- Hmmm...
-    -- debug.debug()
 
     grad_params[2] = 0 -- FIXME 0 the bias gradient, Pretty ugly..
 
@@ -150,7 +168,7 @@ for i = 1, iterations do
     local epoch = i / iterations_per_epoch
 
     local timer = torch.Timer()
-    local _, loss = optim.sgd(feval, params, optim_state)
+    local _, loss = optim.adagrad(feval, params, optim_state)
     local time = timer:time().real
 
     local train_loss = loss[1] -- the loss is inside a list, pop it
@@ -175,7 +193,7 @@ for i = 1, iterations do
     end
 
     if i % opt.print_every == 0 then
-        print(string.format("%d/%d (epoch %.3f), train_loss = %6.8f, grad/param norm = %6.4e, time/batch = %.4fs", i, iterations, epoch, train_loss, grad_params:norm() / params:norm(), time))
+        print(string.format("%d/%d k=%.2f, (epoch %.3f), train_loss = %6.8f, grad/param norm = %6.4e, time/batch = %.4fs", i, iterations, params[1], epoch, train_loss, grad_params:norm() / params:norm(), time))
     end
 
     if i % 10 == 0 then collectgarbage() end
