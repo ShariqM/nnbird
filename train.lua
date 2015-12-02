@@ -6,6 +6,8 @@ require 'lfs'
 require 'gnuplot'
 require 'helpers'
 
+require 'DiscreteFourierTransform'
+
 local model_utils=require 'model_utils'
 local ENN = require 'models.enn'
 
@@ -117,6 +119,13 @@ function feval(x)
         xv_graph[t] = xv
         tgt_graph[t] = tgt[t][{1,1}]
     end
+
+
+    net = nn.Sequential()
+    net:add(nn.DiscreteFourierTransform(seq_length))
+    result = net:forward(tgt_graph)
+    gnuplot.plot(result)
+    debug.debug()
 
     if piter % 20 == 0 then
         gnuplot.pngfigure(string.format('graphs/%.4d.png', piter))
