@@ -20,7 +20,7 @@ cmd:text('Options')
 cmd:option('-data_gen',false,'generate data')
 -- optimization
 cmd:option('-iters',100,'iterations per epoch')
-cmd:option('-learning_rate',4e-1,'learning rate')
+cmd:option('-learning_rate',5e-1,'learning rate')
 cmd:option('-learning_rate_decay',0.97,'learning rate decay')
 cmd:option('-learning_rate_decay_after',10,'in number of epochs, when to start decaying the learning rate')
 cmd:option('-decay_rate',0.95,'decay rate for rmsprop')
@@ -50,6 +50,8 @@ seq_length = 200
 
 dt_tensor = torch.DoubleTensor(1,1):fill(dt)
 
+dft = nn.Sequential()
+dft:add(nn.DiscreteFourierTransform(seq_length))
 if string.len(opt.init_from) > 0 then
     print('loading an Network from checkpoint ' .. opt.init_from)
     local checkpoint = torch.load(opt.init_from)
@@ -58,6 +60,8 @@ else
     protos = {}
     protos.enn = ENN.enn()
     protos.criterion = nn.MSECriterion()
+    dft_criterion = nn.MSECriterion()
+    dft_criterion.sizeAverage = false
 end
 
 params, grad_params = model_utils.combine_all_parameters(protos.enn)
@@ -77,9 +81,10 @@ if opt.data_gen then
     k = -50
     params[1] = k
 
-    x  = torch.DoubleTensor(1,1):fill(x_0)
-    v  = torch.DoubleTensor(1,1):fill(v_0)
-    xv = torch.DoubleTensor(seq_length, 1)
+    x   = torch.DoubleTensor(1,1):fill(x_0)
+    v   = torch.DoubleTensor(1,1):fill(v_0)
+    xv  = torch.DoubleTensor(seq_length, 1)
+    xv2 = torch.DoubleTensor(seq_length)
     xv_data = {}
 
     for t=1, seq_length do
@@ -87,13 +92,18 @@ if opt.data_gen then
         print (string.format("x=%.3f,v=%.3f", x[{1,1}], v[{1,1}]))
         xv[t] = torch.Tensor(1,1):fill(x[{1,1}])
         xv_data[t] = torch.Tensor(1,1):fill(x[{1,1}])
+        xv2[t] = x[{1,1}]
     end
 
+    x_dft = dft:forward(xv2)
+
     torch.save(string.format('data/k=%d.t7', -k), xv_data)
+    torch.save(string.format('data/k=%d_dft.t7', -k), x_dft)
     gnuplot.plot(xv)
     sleep(100)
 end
 
+graph = true
 piter = 0
 function feval(x)
     if x ~= params then
@@ -104,6 +114,7 @@ function feval(x)
     ------------------ forward pass -------------------
     local loss = 0
     tgt  = torch.load('data/k=50.t7')
+    tgt_dft  = torch.load('data/k=50_dft.t7')
     x  = torch.DoubleTensor(1,1):fill(x_0)
     v  = torch.DoubleTensor(1,1):fill(v_0)
     init_state = {x,v}
@@ -112,39 +123,58 @@ function feval(x)
     tgt_graph = torch.Tensor(seq_length)
 
     for t=1,seq_length do
-        -- enn_state[t] = clones.enn[t]:forward{unpack(enn_state[t-1]), dt_tensor}
         enn_state[t] = clones.enn[t]:forward{dt_tensor, unpack(enn_state[t-1])}
         xv = enn_state[t][1]
-        loss = loss + clones.criterion[t]:forward(xv, tgt[t])
+
+        -- loss = loss + clones.criterion[t]:forward(xv, tgt[t])
         xv_graph[t] = xv
-        tgt_graph[t] = tgt[t][{1,1}]
+        -- tgt_graph[t] = tgt[t][{1,1}]
     end
 
+    x_dft = dft:forward(xv_graph)
+    -- for t=1,seq_length do
+        -- loss = loss + dft_criterion:forward(torch.DoubleTensor(1,1):fill(x_dft[t]),
+                                            -- torch.DoubleTensor(1,1):fill(tgt_dft[t]))
+    -- end
 
-    net = nn.Sequential()
-    net:add(nn.DiscreteFourierTransform(seq_length))
-    result = net:forward(tgt_graph)
-    gnuplot.plot(result)
-    debug.debug()
+    loss = dft_criterion:forward(x_dft, tgt_dft)
 
-    if piter % 20 == 0 then
-        gnuplot.pngfigure(string.format('graphs/%.4d.png', piter))
-        gnuplot.xlabel('Time [increments of dt]')
-        gnuplot.ylabel('x(t) [Position]')
+    if graph and piter % 20 == 0 then
         sym = '-'
-        gnuplot.plot({'Model', xv_graph, sym, }, {'Target', tgt_graph, sym})
+        -- gnuplot.pngfigure(string.format('graphs/%.4d.png', piter))
+        -- gnuplot.xlabel('Time [increments of dt]')
+        -- gnuplot.ylabel('x(t) [Position]')
+        -- gnuplot.plot({'Model', xv_graph, sym, }, {'Target', tgt_graph, sym})
+        -- gnuplot.plotflush()
+
+        gnuplot.pngfigure(string.format('graphs/%.4d.png', piter))
+        gnuplot.axis({0, seq_length, -100, 100})
+        gnuplot.xlabel('Freq')
+        gnuplot.ylabel('Real Amplitude')
+        gnuplot.plot({'Model', x_dft, sym}, {'Target', tgt_dft, sym})
         gnuplot.plotflush()
     end
     piter = piter + 1
 
-
+    local threshold = tgt_dft:mean() + 2 * tgt_dft:std()
+    local weights = tgt_dft:clone() -- Weight gradients by energy in the freq
+    weights:apply(function(i)
+            if i < threshold then
+                return 0
+            else
+                return 1
+            end
+    end)
+    weights:fill(1)
     ------------------ backward pass -------------------
     -- initialize gradient at time t to be zeros (there's no influence from future)
     local denn_state = {[seq_length] = clone_list(init_state, true)} -- true also zeros the clones
-    -- local denn_state = {[seq_length] = {}}
+    local doutput = dft_criterion:backward(x_dft, tgt_dft)
+    doutput = dft:backward(xv_graph, doutput)
+
     for t=seq_length,1,-1 do
-        -- backprop through loss, and softmax/linear
-        local doutput_t = clones.criterion[t]:backward(enn_state[t][1], tgt[t])
+        -- local doutput_t = clones.criterion[t]:backward(enn_state[t][1], tgt[t])
+        local doutput_t = doutput[t]
 
         denn_state[t][1]:add(doutput_t)
         local dlst = clones.enn[t]:backward({unpack(enn_state[t-1]), dt_tensor}, denn_state[t])
