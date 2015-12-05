@@ -1,0 +1,12 @@
+NumPy
+Scipy
+Matplotlib
+PyTables
+h5py
+nitime
+spams
+brian
+pandas
+husl
+
+
