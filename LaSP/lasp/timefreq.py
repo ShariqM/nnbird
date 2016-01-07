@@ -1,4 +1,5 @@
 import time
+import pdb
 
 from abc import ABCMeta,abstractmethod
 import copy
@@ -218,6 +219,7 @@ def timefreq(s, sample_rate, window_length, increment, spectrum_estimator, min_f
         window_length = spectrum_estimator.get_window_length()
 
     #compute lengths in # of samples
+    pdb.set_trace()
     nwinlen = int(sample_rate*window_length)
     if nwinlen % 2 == 0:
         nwinlen += 1

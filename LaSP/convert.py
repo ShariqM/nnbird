@@ -10,8 +10,8 @@ wf = read(fname,'r')[1]
 
 # Frames: 30870.00d, Rate: 44100.00
 
-wl = 0.015 # 7ms
-ic = 0.005 # 1ms
+wl = 0.007 # 7ms
+ic = 0.001 # 1ms
 
 t,freq,timefreq,rms = gaussian_stft(wf, 44100, wl, ic)
 
@@ -23,4 +23,3 @@ spec[spec < 0] = 0
 
 plot_spectrogram(t, freq, spec)
 plt.show()
-

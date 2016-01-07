@@ -33,7 +33,7 @@ end
 function graph_data(piter, seq_length, x, tgt, x_dft, tgt_dft)
     save = false
     time = true
-    freq = true
+    freq = false
     sym = '-'
     if save then gnuplot.pngfigure(string.format('graphs/time_%.4d.png', piter)) end
     if time then

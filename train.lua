@@ -47,10 +47,12 @@ seq_length = length / dt
 init_k = 15
 x_0 = 1.0
 v_0 = 0.0
+gam = 1.0
 dt = 0.01
 seq_length = 200
 
 dt_tensor = torch.DoubleTensor(1,1):fill(dt)
+gam_tensor = torch.DoubleTensor(1,1):fill(gam)
 
 dft = nn.Sequential()
 dft:add(nn.CDiscreteFourierTransform(seq_length))
@@ -60,7 +62,8 @@ if string.len(opt.init_from) > 0 then
     protos = checkpoint.protos
 else
     protos = {}
-    protos.enn = ENN.enn()
+    -- protos.enn = ENN.shc()
+    protos.enn = ENN.hedi()
     protos.criterion = nn.MSECriterion()
     dft_criterion = nn.MSECriterion()
     dft_criterion.sizeAverage = false
@@ -100,8 +103,10 @@ function feval(x)
     xv_graph = torch.Tensor(seq_length)
     tgt_graph = torch.Tensor(seq_length)
 
+    pcutoff = 4
     for t=1,seq_length do
-        enn_state[t] = clones.enn[t]:forward{dt_tensor, unpack(enn_state[t-1])}
+        xp, vp = unpack(enn_state[t-1])
+        enn_state[t] = clones.enn[t]:forward{dt_tensor, gam_tensor, gam_tensor, xp, xp, vp}
         xv = enn_state[t][1]
 
         -- loss = loss + clones.criterion[t]:forward(xv, tgt[t])
@@ -126,15 +131,18 @@ function feval(x)
         -- local doutput_t = clones.criterion[t]:backward(enn_state[t][1], tgt[t])
         local doutput_t = doutput[t]
 
+        -- print ("T=", t)
         denn_state[t][1]:add(doutput_t)
-        local dlst = clones.enn[t]:backward({unpack(enn_state[t-1]), dt_tensor}, denn_state[t])
+        -- dlst = clones.enn[t]:backward({dt_tensor, unpack(enn_state[t-1]), dt_tensor}, denn_state[t])
+        xp, vp = unpack(enn_state[t-1])
+        dlst = clones.enn[t]:backward({dt_tensor, gam_tensor, gam_tensor, xp, xp, vp}, denn_state[t])
 
         denn_state[t-1] = {}
         for k,v in pairs(dlst) do
-            if k > 1 then -- k == 1 is gradient on x, which we dont need
+            if k > pcutoff then -- Ignore gradients on constant inputs (gamma, dt, etc.)
                 -- note we do k-1 because first item is dembeddings, and then follow the
                 -- derivatives of the state, starting at index 2. I know...
-                denn_state[t-1][k-1] = v
+                denn_state[t-1][k-pcutoff] = v
             end
         end
     end
