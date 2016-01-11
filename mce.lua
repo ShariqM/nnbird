@@ -28,7 +28,7 @@ function optim.mce(opfunc, x, config, state)
     local config = config or {}
     local state = state or config
 
-    local nwalkers = config.nwalkers or 100
+    local nwalkers = config.nwalkers or 4
     local lrates = config.learningRates or torch.linspace(1e-2, 5, nwalkers)
 
     -- local nwalkers = config.nwalkers or 1
@@ -47,6 +47,7 @@ function optim.mce(opfunc, x, config, state)
         state.params = {}
         for i=1, nwalkers do
             state.params[i] = state.paramGen()
+            print(string.format("%d) Init=%d", i, state.params[i][1]))
         end
     end
 

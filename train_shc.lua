@@ -41,11 +41,14 @@ cmd:text()
 opt = cmd:parse(arg)
 torch.manualSeed(opt.seed)
 
+-- wtf.
+torch.manualSeed(os.time()) -- Have to do this to get diff numbers ...
+
 dt = 1 / 16000
 length = 30 * 0.001 -- 30 ms
 seq_length = length / dt
 
-init_k = -20
+init_k = 20
 x_0 = 1.0
 v_0 = 0.0
 dt = 0.01
