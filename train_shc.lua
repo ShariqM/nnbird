@@ -82,7 +82,7 @@ end
 if opt.data_gen then data_gen(x_0, v_0, k, dt_tensor, seq_length) end
 
 params[1] = init_k
-graph = true
+graph = false
 piter = 0
 function feval(x)
     if x ~= params then
@@ -153,7 +153,6 @@ end
 function random_parameter()
     local params = torch.DoubleTensor(2)
     params[1] = torch.random(-100, 100)
-    -- params[1] = -30
     params[2] = 0 -- 0 bias
     return params
 end
@@ -168,7 +167,7 @@ for i = 1, iterations do
     local epoch = i / iterations_per_epoch
 
     local timer = torch.Timer()
-    local _, loss = optim.mce(feval, params, optim_config, optim_state)
+    local params, loss = optim.mce(feval, params, optim_config, optim_state)
     local time = timer:time().real
 
     local train_loss = loss[1] -- the loss is inside a list, pop it

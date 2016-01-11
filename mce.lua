@@ -33,7 +33,7 @@ function optim.mce(opfunc, x, config, state)
 
     -- local nwalkers = config.nwalkers or 1
     -- local lrates = config.learningRates or {1e-2}
---
+
     -- local nwalkers = config.nwalkers or 2
     -- local lrates = config.learningRates or {1e-2, 10}
 
@@ -47,7 +47,6 @@ function optim.mce(opfunc, x, config, state)
         state.params = {}
         for i=1, nwalkers do
             state.params[i] = state.paramGen()
-            print (string.format("Init%d: %d", i, state.params[i][1]))
         end
     end
 
@@ -65,13 +64,11 @@ function optim.mce(opfunc, x, config, state)
     -- (1) evaluate f(x) and df/dx for all params
     for k,v in pairs(state.params) do
         fxs[k], udfdxs[k] = opfunc(v)
-        -- print (string.format("Key=%d Param=%d, E=%d", k,v[1], fxs[k]))
+        udfdxs[k] = udfdxs[k]:clone() --
     end
 
     -- (2) Sort the results by f(x) (amount of error)
     fxs, sorder = torch.sort(fxs)
-    -- print ('FXS', fxs)
-    -- print ('Sorder', sorder)
 
     nparams = {}
     for i=1, nwalkers do
