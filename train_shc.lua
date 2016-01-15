@@ -41,7 +41,6 @@ cmd:text()
 opt = cmd:parse(arg)
 torch.manualSeed(opt.seed)
 
--- wtf.
 torch.manualSeed(os.time()) -- Have to do this to get diff numbers ...
 
 dt = 1 / 16000

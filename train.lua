@@ -40,16 +40,17 @@ cmd:text()
 opt = cmd:parse(arg)
 torch.manualSeed(opt.seed)
 
-dt = 1 / 16000
-length = 30 * 0.001 -- 30 ms
+torch.manualSeed(os.time())
+
+dt = 1e-6
+length = 1e-4
 seq_length = length / dt
 
-init_k = 15
-x_0 = 1.0
+alpha = -0.41769
+beta = 0.346251775
+x_0 = 0.0
 v_0 = 0.0
-gam = 1.0
-dt = 0.01
-seq_length = 200
+gam = 23500.0
 
 dt_tensor = torch.DoubleTensor(1,1):fill(dt)
 gam_tensor = torch.DoubleTensor(1,1):fill(gam)
@@ -62,8 +63,7 @@ if string.len(opt.init_from) > 0 then
     protos = checkpoint.protos
 else
     protos = {}
-    -- protos.enn = ENN.shc()
-    protos.enn = ENN.hedi()
+    protos.enn = ENN.hedi_rk2e()
     protos.criterion = nn.MSECriterion()
     dft_criterion = nn.MSECriterion()
     dft_criterion.sizeAverage = false
@@ -71,9 +71,12 @@ end
 
 params, grad_params = model_utils.combine_all_parameters(protos.enn)
 params[2] = 0 -- 0 bias
+params[4] = 0 -- 0 bias
+params[1] = alpha
+params[3] = beta
 
 print('number of parameters in the model: ' .. params:nElement())
-print('params 1', params[1])
+print(string.format('Alpha: %f; Beta: %f', params[1], params[3]))
 
 clones = {}
 for name,proto in pairs(protos) do
@@ -83,7 +86,6 @@ end
 
 if opt.data_gen then data_gen(x_0, v_0, k, dt_tensor, seq_length) end
 
-params[1] = init_k
 graph = true
 piter = 0
 function feval(x)
@@ -105,20 +107,22 @@ function feval(x)
 
     pcutoff = 4
     for t=1,seq_length do
+        print (t)
         xp, vp = unpack(enn_state[t-1])
         enn_state[t] = clones.enn[t]:forward{dt_tensor, gam_tensor, gam_tensor, xp, xp, vp}
         xv = enn_state[t][1]
 
         -- loss = loss + clones.criterion[t]:forward(xv, tgt[t])
         xv_graph[t] = xv
-        tgt_graph[t] = tgt[t][{1,1}]
+        -- tgt_graph[t] = tgt[t][{1,1}]
     end
 
     x_dft = dft:forward(xv_graph)
-    loss = dft_criterion:forward(x_dft, tgt_dft)
+    -- loss = dft_criterion:forward(x_dft, tgt_dft)
 
     if graph and piter % 20 == 0 then graph_data(piter, seq_length, xv_graph, tgt, x_dft, tgt_dft) end
     piter = piter + 1
+    debug.debug()
 
     ------------------ backward pass -------------------
     -- initialize gradient at time t to be zeros (there's no influence from future)
