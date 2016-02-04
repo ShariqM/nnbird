@@ -123,6 +123,9 @@ function model_utils.clone_T_times(net, T)
     mem:writeObject(net)
 
     for t = 1, T do
+        if t % 100 == 0 then
+            print (t)
+        end
         -- We need to use a new reader for each clone.
         -- We don't want to use the pointers to already read objects.
         local reader = torch.MemoryFile(mem:storage(), "r"):binary()

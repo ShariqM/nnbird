@@ -6,6 +6,9 @@ require 'lfs'
 require 'gnuplot'
 require 'helpers'
 
+matio = require 'matio'
+matio.use_lua_strings = true
+
 require 'DiscreteFourierTransform'
 require 'CDiscreteFourierTransform'
 
@@ -43,15 +46,18 @@ torch.manualSeed(opt.seed)
 torch.manualSeed(os.time())
 
 dt = 1e-6
-length = 1e-4
+length = 500 * dt
 seq_length = length / dt
+print ('seq_length', seq_length)
 
 alpha = -0.41769
 beta = 0.346251775
+hf = 1/2
 x_0 = 0.0
 v_0 = 0.0
 gam = 23500.0
 
+hf_tensor = torch.DoubleTensor(1,1):fill(hf)
 dt_tensor = torch.DoubleTensor(1,1):fill(dt)
 gam_tensor = torch.DoubleTensor(1,1):fill(gam)
 
@@ -82,6 +88,17 @@ clones = {}
 for name,proto in pairs(protos) do
     print('cloning ' .. name)
     clones[name] = model_utils.clone_T_times(proto, seq_length)
+    print ('done')
+end
+
+checkpoint_now = true
+if checkpoint_now then
+    local savefile = string.format('%s/enn_epoch%.2f.t7', opt.checkpoint_dir, epoch)
+    print('saving checkpoint to ' .. savefile)
+    local checkpoint = {}
+    checkpoint.protos = protos
+    checkpoint.opt = opt
+    torch.save(savefile, checkpoint)
 end
 
 if opt.data_gen then data_gen(x_0, v_0, k, dt_tensor, seq_length) end
@@ -97,6 +114,8 @@ function feval(x)
     ------------------ forward pass -------------------
     local loss = 0
     tgt  = torch.load('data/k=50.t7')
+    -- tgt_f = matio.load('x_rk.mat')
+    -- tgt = tgt_f['x_rk']
     tgt_dft  = torch.load('data/k=50_dft.t7')
     x  = torch.DoubleTensor(1,1):fill(x_0)
     v  = torch.DoubleTensor(1,1):fill(v_0)
@@ -109,15 +128,16 @@ function feval(x)
     for t=1,seq_length do
         print (t)
         xp, vp = unpack(enn_state[t-1])
-        enn_state[t] = clones.enn[t]:forward{dt_tensor, gam_tensor, gam_tensor, xp, xp, vp}
+        enn_state[t] = clones.enn[t]:forward{hf_tensor, dt_tensor, gam_tensor, gam_tensor, xp, xp, vp}
         xv = enn_state[t][1]
 
         -- loss = loss + clones.criterion[t]:forward(xv, tgt[t])
         xv_graph[t] = xv
         -- tgt_graph[t] = tgt[t][{1,1}]
+        -- tgt_graph[t] = tgt[{1,t}]
     end
 
-    x_dft = dft:forward(xv_graph)
+    -- x_dft = dft:forward(xv_graph)
     -- loss = dft_criterion:forward(x_dft, tgt_dft)
 
     if graph and piter % 20 == 0 then graph_data(piter, seq_length, xv_graph, tgt, x_dft, tgt_dft) end
@@ -169,6 +189,7 @@ for i = 1, iterations do
     local epoch = i / iterations_per_epoch
 
     local timer = torch.Timer()
+    print ('run time')
     local _, loss = optim.adagrad(feval, params, optim_state)
     local time = timer:time().real
 

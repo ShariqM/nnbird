@@ -40,7 +40,8 @@ function graph_data(piter, seq_length, x, tgt, x_dft, tgt_dft)
         gnuplot.figure(1)
         gnuplot.xlabel('Time [increments of dt]')
         gnuplot.ylabel('x(t) [Position]')
-        gnuplot.plot({'Model', xv_graph, sym, }, {'Target', tgt_graph, sym})
+        -- gnuplot.plot({'Model', xv_graph, sym, }, {'Target', tgt_graph, sym})
+        gnuplot.plot({'Model', xv_graph, sym, })
     end
 
     if save then gnuplot.plotflush() end
